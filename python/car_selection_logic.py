@@ -1,11 +1,19 @@
 import sqlite3
+from pathlib import Path
+
 import pandas as pd
 
-# Path to the SQLite database file
+# Path to the SQLite database file (relative to repo root)
 db_path = "data/modified_cars_data.db"
+
+# Optional: export the final 14-car selection for easy sharing / Tableau reconnects
+export_csv_path = "data/final_selected_14.csv"
 try:
     # Create a connection to the SQLite database
-    conn = sqlite3.connect(db_path)
+    # (Resolve to an absolute path so the script works no matter where it's launched from.)
+    repo_root = Path(__file__).resolve().parents[1]
+    resolved_db_path = (repo_root / db_path).resolve()
+    conn = sqlite3.connect(str(resolved_db_path))
 
     # Load the entire cars_data table into a DataFrame
     df = pd.read_sql_query("SELECT * FROM cars_data", conn)
@@ -71,9 +79,30 @@ try:
     # Convert the list of selected cars to a DataFrame for easier viewing
     selected_cars_df = pd.DataFrame(selected_cars)
 
+    # Friendly formatting for display (does not change the underlying data)
+    if not selected_cars_df.empty and "Price" in selected_cars_df.columns:
+        selected_cars_df["Price_fmt"] = selected_cars_df["Price"].apply(
+            lambda x: f"${x:,.0f}" if pd.notna(x) else x
+        )
+
+    # Export a CSV copy (handy for Tableau and for GitHub viewers)
+    export_path = (repo_root / export_csv_path).resolve()
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    selected_cars_df.to_csv(export_path, index=False)
+
     # Display the result
     print(selected_cars_df)
+    print(f"\nSaved: {export_path}")
+
+    # Quick data-quality flags (informational only)
+    if not selected_cars_df.empty and "Price" in selected_cars_df.columns:
+        suspicious = selected_cars_df[(selected_cars_df["Price"] < 1000) | (selected_cars_df["Price"] > 200000)]
+        if not suspicious.empty:
+            print("\nNote: Some selected rows have unusually low/high 'Price' values.")
+            print("This may be due to how the source dataset encodes price for certain listings.")
+            print("If you want, we can add a cleaning rule (e.g., exclude prices < 1000) — but that will change the final 14 cars.")
 
 except sqlite3.OperationalError as e:
     print(f"Error: {e}")
+
 
